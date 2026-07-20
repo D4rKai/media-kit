@@ -5,8 +5,11 @@ import static org.junit.Assert.assertNotEquals;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.longThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import android.view.Surface;
@@ -67,6 +70,17 @@ public class VideoOutputTest {
         verify(surfaceProducer).setSize(1920, 1080);
         verify(textureUpdateCallback).onTextureUpdate(
                 eq(7L), longThat(wid -> wid != 0L), eq(1920), eq(1080));
+    }
+
+    @Test
+    public void sameSizeRequestRemainsNoOpWhenSurfaceIsAttached() {
+        videoOutput.onSurfaceAvailable();
+        clearInvocations(surfaceProducer, textureUpdateCallback);
+
+        videoOutput.setSurfaceSize(1920, 1080);
+
+        verify(surfaceProducer, never()).setSize(1920, 1080);
+        verifyNoInteractions(textureUpdateCallback);
     }
 
     private static long storedWid(VideoOutput output) throws Exception {

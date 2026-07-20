@@ -12,6 +12,7 @@ import 'package:synchronized/synchronized.dart';
 
 import 'package:media_kit/media_kit.dart';
 
+import 'package:media_kit_video/src/utils/android_surface_size.dart';
 import 'package:media_kit_video/src/utils/query_decoders.dart';
 import 'package:media_kit_video/src/video_controller/platform_video_controller.dart';
 
@@ -97,12 +98,19 @@ class AndroidVideoController extends PlatformVideoController {
           height = event.dw ?? 0;
         }
 
-        final isZero = width == 0 || height == 0;
-        final isSame = width == rect.value?.width.toInt() &&
-            height == rect.value?.height.toInt();
-        if (isZero || isSame) {
+        if (width == 0 || height == 0) {
           return;
         }
+
+        final surfaceSize = resolveAndroidSurfaceSize(
+          Size(width.toDouble(), height.toDouble()),
+          maximum: configuration.androidSurfaceSizeLimit,
+        );
+        final surfaceWidth = surfaceSize.width.toInt();
+        final surfaceHeight = surfaceSize.height.toInt();
+        final isSame = surfaceWidth == rect.value?.width.toInt() &&
+            surfaceHeight == rect.value?.height.toInt();
+        if (isSame) return;
 
         final handle = await player.handle;
 
@@ -110,16 +118,16 @@ class AndroidVideoController extends PlatformVideoController {
           'VideoOutputManager.SetSurfaceSize',
           {
             'handle': handle.toString(),
-            'width': width.toString(),
-            'height': height.toString(),
+            'width': surfaceWidth.toString(),
+            'height': surfaceHeight.toString(),
           },
         );
 
         rect.value = Rect.fromLTWH(
           0.0,
           0.0,
-          width.toDouble(),
-          height.toDouble(),
+          surfaceWidth.toDouble(),
+          surfaceHeight.toDouble(),
         );
 
         if (!waitUntilFirstFrameRenderedCompleter.isCompleted) {

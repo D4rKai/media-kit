@@ -138,6 +138,12 @@ class VideoControllerConfiguration {
   /// * [vo] != gpu : `false`
   final bool? androidAttachSurfaceAfterVideoParameters;
 
+  /// Optional maximum Android output-surface size, preserving aspect ratio.
+  ///
+  /// This changes only the output surface allocation. Source selection and
+  /// decoded video parameters remain unchanged.
+  final Size? androidSurfaceSizeLimit;
+
   /// {@macro video_controller_configuration}
   const VideoControllerConfiguration({
     this.vo,
@@ -147,6 +153,7 @@ class VideoControllerConfiguration {
     this.scale = 1.0,
     this.enableHardwareAcceleration = true,
     this.androidAttachSurfaceAfterVideoParameters,
+    this.androidSurfaceSizeLimit,
   });
 
   /// Returns a copy of this class with the given fields replaced by the new values.
@@ -158,6 +165,7 @@ class VideoControllerConfiguration {
     int? height,
     bool? enableHardwareAcceleration,
     bool? androidAttachSurfaceAfterVideoParameters,
+    Size? androidSurfaceSizeLimit,
   }) =>
       VideoControllerConfiguration(
         vo: vo ?? this.vo,
@@ -170,5 +178,7 @@ class VideoControllerConfiguration {
         androidAttachSurfaceAfterVideoParameters:
             androidAttachSurfaceAfterVideoParameters ??
                 this.androidAttachSurfaceAfterVideoParameters,
+        androidSurfaceSizeLimit:
+            androidSurfaceSizeLimit ?? this.androidSurfaceSizeLimit,
       );
 }
