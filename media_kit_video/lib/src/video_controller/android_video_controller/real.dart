@@ -227,6 +227,24 @@ class AndroidVideoController extends PlatformVideoController {
     );
   }
 
+  @override
+  Future<void> refreshVideoOutput() async {
+    final currentRect = rect.value;
+    if (currentRect == null || currentRect.isEmpty) {
+      return;
+    }
+
+    final handle = await player.handle;
+    await _channel.invokeMethod(
+      'VideoOutputManager.SetSurfaceSize',
+      {
+        'handle': handle.toString(),
+        'width': currentRect.width.toInt().toString(),
+        'height': currentRect.height.toInt().toString(),
+      },
+    );
+  }
+
   /// Disposes the instance. Releases allocated resources back to the system.
   Future<void> _dispose() async {
     super.dispose();
@@ -269,6 +287,7 @@ class AndroidVideoController extends PlatformVideoController {
                     final int wid = call.arguments['wid'];
                     _controllers[handle]?.rect.value = rect;
                     _controllers[handle]?.id.value = id;
+                    _controllers[handle]?.updateOutputSurface(wid);
                     _controllers[handle]?.wid.value = wid;
                     break;
                   }

@@ -79,7 +79,7 @@ public class VideoOutput implements TextureRegistry.SurfaceProducer.Callback {
     private void setSurfaceSize(int width, int height, boolean force) {
         synchronized (lock) {
             try {
-                if (!force && surfaceProducer.getWidth() == width && surfaceProducer.getHeight() == height) {
+                if (!force && wid != 0 && surfaceProducer.getWidth() == width && surfaceProducer.getHeight() == height) {
                     return;
                 }
                 surfaceProducer.setSize(width, height);
@@ -104,9 +104,10 @@ public class VideoOutput implements TextureRegistry.SurfaceProducer.Callback {
     public void onSurfaceCleanup() {
         synchronized (lock) {
             Log.i(TAG, "onSurfaceCleanup");
+            final long widReference = wid;
+            wid = 0;
             textureUpdateCallback.onTextureUpdate(id, 0, surfaceProducer.getWidth(), surfaceProducer.getHeight());
-            if (wid != 0) {
-                final long widReference = wid;
+            if (widReference != 0) {
                 handler.postDelayed(() -> deleteGlobalObjectRef(widReference), 5000);
             }
         }

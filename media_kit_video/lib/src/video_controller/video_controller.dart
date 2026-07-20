@@ -68,6 +68,12 @@ class VideoController {
   /// [Rect] of the video output, received from the native implementation.
   final ValueNotifier<Rect?> rect = ValueNotifier<Rect?>(null);
 
+  /// Whether a native output surface is currently attached.
+  final ValueNotifier<bool> outputSurfaceAttached = ValueNotifier<bool>(false);
+
+  /// Monotonic epoch incremented for every native output surface attachment.
+  final ValueNotifier<int> outputSurfaceEpoch = ValueNotifier<int>(0);
+
   /// {@macro video_controller}
   VideoController(
     this.player, {
@@ -111,14 +117,24 @@ class VideoController {
           // Add listeners.
           void fn0() => id.value = controller.id.value;
           void fn1() => rect.value = controller.rect.value;
+          void fn2() => outputSurfaceAttached.value =
+              controller.outputSurfaceAttached.value;
+          void fn3() =>
+              outputSurfaceEpoch.value = controller.outputSurfaceEpoch.value;
           fn0();
           fn1();
+          fn2();
+          fn3();
           controller.id.addListener(fn0);
           controller.rect.addListener(fn1);
+          controller.outputSurfaceAttached.addListener(fn2);
+          controller.outputSurfaceEpoch.addListener(fn3);
           // Remove listeners upon [Player.dispose].
           player.platform?.release.add(() async {
             controller.id.removeListener(fn0);
             controller.rect.removeListener(fn1);
+            controller.outputSurfaceAttached.removeListener(fn2);
+            controller.outputSurfaceEpoch.removeListener(fn3);
           });
         } else {
           platform.completeError(
@@ -154,6 +170,12 @@ class VideoController {
       width: width,
       height: height,
     );
+  }
+
+  /// Requests that the platform refresh its current video output.
+  Future<void> refreshVideoOutput() async {
+    final instance = await platform.future;
+    return instance.refreshVideoOutput();
   }
 
   /// A [Future] that completes when the first video frame has been rendered.

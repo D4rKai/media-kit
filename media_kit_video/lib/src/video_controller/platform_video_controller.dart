@@ -8,6 +8,7 @@ import 'package:flutter/widgets.dart';
 
 import 'package:media_kit/media_kit.dart';
 
+import 'package:media_kit_video/src/utils/video_output_surface_state.dart';
 import 'package:media_kit_video/src/video_controller/video_controller.dart';
 
 /// {@template platform_video_controller}
@@ -34,6 +35,14 @@ abstract class PlatformVideoController {
   /// [Rect] of the video output, received from the native implementation.
   final ValueNotifier<Rect?> rect = ValueNotifier<Rect?>(null);
 
+  final VideoOutputSurfaceState _outputSurfaceState = VideoOutputSurfaceState();
+
+  /// Whether a native output surface is currently attached.
+  ValueNotifier<bool> get outputSurfaceAttached => _outputSurfaceState.attached;
+
+  /// Monotonic epoch incremented for every native output surface attachment.
+  ValueNotifier<int> get outputSurfaceEpoch => _outputSurfaceState.epoch;
+
   /// {@macro platform_video_controller}
   PlatformVideoController(
     this.player,
@@ -51,6 +60,13 @@ abstract class PlatformVideoController {
     int? height,
   });
 
+  /// Requests that the platform refresh its current video output.
+  Future<void> refreshVideoOutput() async {}
+
+  /// Updates the public output surface lifecycle signals.
+  @protected
+  void updateOutputSurface(int wid) => _outputSurfaceState.update(wid);
+
   /// A [Future] that completes when the first video frame has been rendered.
   Future<void> get waitUntilFirstFrameRendered =>
       waitUntilFirstFrameRenderedCompleter.future;
@@ -63,6 +79,7 @@ abstract class PlatformVideoController {
   void dispose() {
     id.dispose();
     rect.dispose();
+    _outputSurfaceState.dispose();
   }
 }
 
