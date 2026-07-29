@@ -40,12 +40,19 @@ class ANGLESurfaceManager {
   const int32_t width() const { return width_; }
   const int32_t height() const { return height_; }
   const HANDLE handle() const { return handle_; }
+  Microsoft::WRL::ComPtr<ID3D11Texture2D> RetainFlutterTexture() const {
+    return d3d_11_texture_2D_;
+  }
 
   ANGLESurfaceManager(int32_t width, int32_t height);
 
   ~ANGLESurfaceManager();
 
   void SetSize(int32_t width, int32_t height);
+
+  // Recreates the D3D textures and EGL surface even when dimensions are
+  // unchanged. The EGL display and context remain owned by this instance.
+  void Refresh();
 
   void Draw(std::function<void()> callback);
 

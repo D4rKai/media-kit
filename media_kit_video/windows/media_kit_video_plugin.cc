@@ -40,6 +40,21 @@ MediaKitVideoPlugin::MediaKitVideoPlugin(
 }
 
 MediaKitVideoPlugin::~MediaKitVideoPlugin() {
+  {
+    std::lock_guard<std::mutex> lock(main_thread_tasks_mutex_);
+    shutting_down_ = true;
+  }
+
+  // VideoOutput callbacks capture this plugin. Quiesce every native output
+  // while the task queue, mutex, channel, and window procedure are still alive.
+  video_output_manager_.reset();
+  {
+    std::lock_guard<std::mutex> lock(main_thread_tasks_mutex_);
+    while (!main_thread_tasks_.empty()) {
+      main_thread_tasks_.pop();
+    }
+  }
+
   if (flutter_window_ && original_window_proc_) {
     ::SetWindowLongPtr(flutter_window_, GWLP_WNDPROC,
                        reinterpret_cast<LONG_PTR>(original_window_proc_));
@@ -50,16 +65,83 @@ MediaKitVideoPlugin::~MediaKitVideoPlugin() {
 }
 
 void MediaKitVideoPlugin::RunOnMainThread(std::function<void()> task) {
-  if (!flutter_window_) {
-    return;
-  }
-
+  HWND window = nullptr;
   {
     std::lock_guard<std::mutex> lock(main_thread_tasks_mutex_);
+    if (shutting_down_ || !flutter_window_) {
+      return;
+    }
     main_thread_tasks_.push(std::move(task));
+    window = flutter_window_;
   }
 
-  ::PostMessage(flutter_window_, kMainThreadTaskMessage, 0, 0);
+  ::PostMessage(window, kMainThreadTaskMessage, 0, 0);
+}
+
+void MediaKitVideoPlugin::NotifyTexture(int64_t handle,
+                                        int64_t generation,
+                                        int64_t id,
+                                        int64_t width,
+                                        int64_t height) {
+  RunOnMainThread([this, handle, generation, id, width, height]() {
+    channel_->InvokeMethod(
+        "VideoOutput.Resize",
+        std::make_unique<flutter::EncodableValue>(flutter::EncodableMap{
+            {
+                flutter::EncodableValue("handle"),
+                flutter::EncodableValue(handle),
+            },
+            {
+                flutter::EncodableValue("generation"),
+                flutter::EncodableValue(generation),
+            },
+            {
+                flutter::EncodableValue("id"),
+                flutter::EncodableValue(id),
+            },
+            {
+                flutter::EncodableValue("rect"),
+                flutter::EncodableValue(flutter::EncodableMap{
+                    {
+                        flutter::EncodableValue("left"),
+                        flutter::EncodableValue(0),
+                    },
+                    {
+                        flutter::EncodableValue("top"),
+                        flutter::EncodableValue(0),
+                    },
+                    {
+                        flutter::EncodableValue("width"),
+                        flutter::EncodableValue(width),
+                    },
+                    {
+                        flutter::EncodableValue("height"),
+                        flutter::EncodableValue(height),
+                    },
+                }),
+            },
+        }),
+        nullptr);
+  });
+}
+
+void MediaKitVideoPlugin::NotifyFirstFrame(int64_t handle,
+                                           int64_t generation) {
+  RunOnMainThread([this, handle, generation]() {
+    channel_->InvokeMethod(
+        "VideoOutput.FirstFrame",
+        std::make_unique<flutter::EncodableValue>(flutter::EncodableMap{
+            {
+                flutter::EncodableValue("handle"),
+                flutter::EncodableValue(handle),
+            },
+            {
+                flutter::EncodableValue("generation"),
+                flutter::EncodableValue(generation),
+            },
+        }),
+        nullptr);
+  });
 }
 
 LRESULT CALLBACK MediaKitVideoPlugin::WindowProcDelegate(HWND hwnd,
@@ -131,42 +213,48 @@ void MediaKitVideoPlugin::HandleMethodCall(
     video_output_manager_->Create(
         handle_value, configuration_value,
         [this, handle = handle_value](auto id, auto width, auto height) {
-          RunOnMainThread([=]() {
-            channel_->InvokeMethod(
-                "VideoOutput.Resize",
-                std::make_unique<flutter::EncodableValue>(flutter::EncodableMap{
-                    {
-                        flutter::EncodableValue("handle"),
-                        flutter::EncodableValue(handle),
-                    },
-                    {
-                        flutter::EncodableValue("id"),
-                        flutter::EncodableValue(id),
-                    },
-                    {
-                        flutter::EncodableValue("rect"),
-                        flutter::EncodableValue(flutter::EncodableMap{
-                            {
-                                flutter::EncodableValue("left"),
-                                flutter::EncodableValue(0),
-                            },
-                            {
-                                flutter::EncodableValue("top"),
-                                flutter::EncodableValue(0),
-                            },
-                            {
-                                flutter::EncodableValue("width"),
-                                flutter::EncodableValue(width),
-                            },
-                            {
-                                flutter::EncodableValue("height"),
-                                flutter::EncodableValue(height),
-                            },
-                        }),
-                    },
-                }),
-                nullptr);
-          });
+          NotifyTexture(handle, 0, id, width, height);
+        },
+        [this, handle = handle_value]() { NotifyFirstFrame(handle, 0); });
+    result->Success(flutter::EncodableValue(std::monostate{}));
+  } else if (method_call.method_name().compare(
+                 "VideoOutputManager.Refresh") == 0) {
+    auto arguments = std::get<flutter::EncodableMap>(*method_call.arguments());
+    auto handle =
+        std::get<std::string>(arguments[flutter::EncodableValue("handle")]);
+    auto generation =
+        std::get<std::string>(arguments[flutter::EncodableValue("generation")]);
+    auto configuration = std::get<flutter::EncodableMap>(
+        arguments[flutter::EncodableValue("configuration")]);
+
+    auto handle_value = std::stoll(handle);
+    auto generation_value = std::stoll(generation);
+    auto configuration_value = VideoOutputConfiguration{};
+    auto configuration_width =
+        std::get<std::string>(configuration[flutter::EncodableValue("width")]);
+    auto configuration_height =
+        std::get<std::string>(configuration[flutter::EncodableValue("height")]);
+    auto configuration_enable_hardware_acceleration = std::get<bool>(
+        configuration[flutter::EncodableValue("enableHardwareAcceleration")]);
+    if (configuration_width.compare("null") != 0) {
+      configuration_value.width =
+          static_cast<int64_t>(std::stoll(configuration_width.c_str()));
+    }
+    if (configuration_height.compare("null") != 0) {
+      configuration_value.height =
+          static_cast<int64_t>(std::stoll(configuration_height.c_str()));
+    }
+    configuration_value.enable_hardware_acceleration =
+        configuration_enable_hardware_acceleration;
+
+    video_output_manager_->Refresh(
+        handle_value, configuration_value,
+        [this, handle = handle_value, generation = generation_value](
+            auto id, auto width, auto height) {
+          NotifyTexture(handle, generation, id, width, height);
+        },
+        [this, handle = handle_value, generation = generation_value]() {
+          NotifyFirstFrame(handle, generation);
         });
     result->Success(flutter::EncodableValue(std::monostate{}));
   } else if (method_call.method_name().compare("VideoOutputManager.Dispose") ==

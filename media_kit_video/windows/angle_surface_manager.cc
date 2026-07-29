@@ -39,12 +39,31 @@ ANGLESurfaceManager::~ANGLESurfaceManager() {
 }
 
 void ANGLESurfaceManager::SetSize(int32_t width, int32_t height) {
+  ::WaitForSingleObject(mutex_, INFINITE);
   if (width == width_ && height == height_) {
+    ::ReleaseMutex(mutex_);
     return;
   }
   width_ = width;
   height_ = height;
-  Create();
+  try {
+    Create();
+  } catch (...) {
+    ::ReleaseMutex(mutex_);
+    throw;
+  }
+  ::ReleaseMutex(mutex_);
+}
+
+void ANGLESurfaceManager::Refresh() {
+  ::WaitForSingleObject(mutex_, INFINITE);
+  try {
+    Create();
+  } catch (...) {
+    ::ReleaseMutex(mutex_);
+    throw;
+  }
+  ::ReleaseMutex(mutex_);
 }
 
 void ANGLESurfaceManager::Draw(std::function<void()> callback) {

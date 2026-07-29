@@ -15,42 +15,57 @@ VideoOutputManager::VideoOutputManager(
 void VideoOutputManager::Create(
     int64_t handle,
     VideoOutputConfiguration configuration,
-    std::function<void(int64_t, int64_t, int64_t)> texture_update_callback) {
-  std::thread([=]() {
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (video_outputs_.find(handle) == video_outputs_.end()) {
-      auto instance = std::make_unique<VideoOutput>(
-          handle, configuration, registrar_, thread_pool_.get());
-      instance->SetTextureUpdateCallback(texture_update_callback);
-      video_outputs_.insert(std::make_pair(handle, std::move(instance)));
-    }
-  }).detach();
+    std::function<void(int64_t, int64_t, int64_t)> texture_update_callback,
+    std::function<void()> first_frame_callback) {
+  operation_thread_pool_->Post(
+      [this, handle, configuration, texture_update_callback,
+       first_frame_callback]() {
+        if (video_outputs_.find(handle) == video_outputs_.end()) {
+          auto instance = std::make_unique<VideoOutput>(
+              handle, configuration, registrar_, thread_pool_.get(),
+              first_frame_callback);
+          instance->SetTextureUpdateCallback(texture_update_callback);
+          video_outputs_.insert(std::make_pair(handle, std::move(instance)));
+        }
+      });
+}
+
+void VideoOutputManager::Refresh(
+    int64_t handle,
+    VideoOutputConfiguration configuration,
+    std::function<void(int64_t, int64_t, int64_t)> texture_update_callback,
+    std::function<void()> first_frame_callback) {
+  operation_thread_pool_->Post(
+      [this, handle, configuration, texture_update_callback,
+       first_frame_callback]() {
+        const auto existing = video_outputs_.find(handle);
+        if (existing == video_outputs_.end()) {
+          return;
+        }
+        existing->second->Refresh(configuration, texture_update_callback,
+                                  first_frame_callback);
+      });
 }
 
 void VideoOutputManager::SetSize(int64_t handle,
                                  std::optional<int64_t> width,
                                  std::optional<int64_t> height) {
-  std::thread([=]() {
-    std::lock_guard<std::mutex> lock(mutex_);
+  operation_thread_pool_->Post([this, handle, width, height]() {
     if (video_outputs_.find(handle) != video_outputs_.end()) {
       video_outputs_[handle]->SetSize(width, height);
     }
-  }).detach();
+  });
 }
 
 void VideoOutputManager::Dispose(int64_t handle) {
-  std::thread([=]() {
-    std::lock_guard<std::mutex> lock(mutex_);
+  operation_thread_pool_->Post([this, handle]() {
     if (video_outputs_.find(handle) != video_outputs_.end()) {
       video_outputs_.erase(handle);
     }
-  }).detach();
+  });
 }
 
 VideoOutputManager::~VideoOutputManager() {
-  std::lock_guard<std::mutex> lock(mutex_);
-  // |VideoOutput| destructor will do the relevant cleanup.
-  video_outputs_.clear();
-  // This destructor is only called when the plugin is being destroyed i.e. the
-  // application is being closed. So, doesn't really matter on the other hand.
+  // Drain every ordered manager operation before releasing render resources.
+  operation_thread_pool_->Post([this]() { video_outputs_.clear(); }).wait();
 }

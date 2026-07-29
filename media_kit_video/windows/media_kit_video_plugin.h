@@ -38,9 +38,18 @@ class MediaKitVideoPlugin : public flutter::Plugin {
       std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result);
 
   void RunOnMainThread(std::function<void()> task);
-  static LRESULT CALLBACK WindowProcDelegate(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
+  void NotifyTexture(int64_t handle,
+                     int64_t generation,
+                     int64_t id,
+                     int64_t width,
+                     int64_t height);
+  void NotifyFirstFrame(int64_t handle, int64_t generation);
+  static LRESULT CALLBACK WindowProcDelegate(HWND hwnd,
+                                             UINT message,
+                                             WPARAM wParam,
+                                             LPARAM lParam);
   void ProcessMainThreadTasks();
-  
+
   flutter::PluginRegistrarWindows* registrar_ = nullptr;
   std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>> channel_ =
       nullptr;
@@ -49,6 +58,7 @@ class MediaKitVideoPlugin : public flutter::Plugin {
   WNDPROC original_window_proc_ = nullptr;
   std::queue<std::function<void()>> main_thread_tasks_;
   std::mutex main_thread_tasks_mutex_;
+  bool shutting_down_ = false;
   static MediaKitVideoPlugin* instance_;
 };
 

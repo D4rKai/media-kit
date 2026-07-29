@@ -14,6 +14,7 @@ import 'package:media_kit/media_kit.dart';
 
 import 'package:media_kit_video/src/utils/query_decoders.dart';
 import 'package:media_kit_video/src/video_controller/platform_video_controller.dart';
+import 'package:media_kit_video/src/video_controller/native_video_controller/native_output_refresh_state.dart';
 
 /// {@template native_video_controller}
 ///
@@ -49,6 +50,8 @@ class NativeVideoController extends PlatformVideoController {
 
   /// [Lock] used to synchronize [onLoadHooks], [onUnloadHooks] & [subscription].
   final lock = Lock();
+  late final NativeOutputRefreshState _outputRefreshState;
+  bool _disposed = false;
 
   NativePlayer get platform => player.platform as NativePlayer;
 
@@ -72,6 +75,15 @@ class NativeVideoController extends PlatformVideoController {
     super.configuration,
   )   : width = configuration.width,
         height = configuration.height {
+    _outputRefreshState = NativeOutputRefreshState(
+      timeout: const Duration(seconds: 5),
+      onReady: (_) {
+        if (_disposed) return;
+        if (!waitUntilFirstFrameRenderedCompleter.isCompleted) {
+          waitUntilFirstFrameRenderedCompleter.complete();
+        }
+      },
+    );
     videoParamsSubscription = player.stream.videoParams.listen(
       (event) => lock.synchronized(() async {
         if ([0, null].contains(event.dw) || [0, null].contains(event.dh)) {
@@ -235,12 +247,42 @@ class NativeVideoController extends PlatformVideoController {
     }
   }
 
+  @override
+  Future<void> refreshVideoOutput() {
+    if (!Platform.isWindows) return Future<void>.value();
+    return _outputRefreshState.refresh((generation) async {
+      final handle = await player.handle;
+      final geometry = resolveNativeOutputRefreshGeometry(
+        configuredWidth: width,
+        configuredHeight: height,
+        videoWidth: videoParamsWidth,
+        videoHeight: videoParamsHeight,
+      );
+      await _channel.invokeMethod(
+        'VideoOutputManager.Refresh',
+        {
+          'handle': handle.toString(),
+          'generation': generation.toString(),
+          'configuration': {
+            'width': geometry.width?.toString() ?? 'null',
+            'height': geometry.height?.toString() ?? 'null',
+            'enableHardwareAcceleration':
+                configuration.enableHardwareAcceleration,
+          },
+        },
+      );
+    });
+  }
+
   /// Disposes the instance. Releases allocated resources back to the system.
   Future<void> _dispose() async {
-    super.dispose();
-    await videoParamsSubscription?.cancel();
+    if (_disposed) return;
+    _disposed = true;
+    _outputRefreshState.dispose();
     final handle = await player.handle;
     _controllers.remove(handle);
+    await videoParamsSubscription?.cancel();
+    super.dispose();
     await _channel.invokeMethod(
       'VideoOutputManager.Dispose',
       {
@@ -273,16 +315,63 @@ class NativeVideoController extends PlatformVideoController {
                       call.arguments['rect']['height'] * 1.0,
                     );
                     final int id = call.arguments['id'];
-                    _controllers[handle]?.rect.value = rect;
-                    _controllers[handle]?.id.value = id;
-                    // Notify about the first frame being rendered.
-                    if (rect.width > 0 && rect.height > 0) {
-                      final completer = _controllers[handle]
-                          ?.waitUntilFirstFrameRenderedCompleter;
-                      if (!(completer?.isCompleted ?? true)) {
-                        completer?.complete();
+                    final int generation =
+                        call.arguments['generation'] as int? ?? 0;
+                    final controller = _controllers[handle];
+                    if (controller != null) {
+                      if (id <= 0) {
+                        controller._outputRefreshState.acceptDetachment(
+                          generation: generation,
+                          onAccept: () {
+                            controller.rect.value = rect;
+                            controller.id.value = id;
+                            controller.updateOutputSurface(0);
+                          },
+                        );
+                      } else if (rect.width <= 0 || rect.height <= 0) {
+                        controller._outputRefreshState.acceptBootstrapSurface(
+                          generation: generation,
+                          onAccept: () {
+                            controller.rect.value = rect;
+                            controller.id.value = id;
+                            controller.updateOutputSurface(id);
+                          },
+                        );
+                      } else {
+                        controller._outputRefreshState.acceptSurface(
+                          generation: generation,
+                          surfaceId: id,
+                          width: rect.width.toInt(),
+                          height: rect.height.toInt(),
+                          onAccept: () {
+                            controller.rect.value = rect;
+                            controller.id.value = id;
+                            controller.updateOutputSurface(id);
+                          },
+                        );
                       }
                     }
+                    // Windows publishes a correlated callback after libmpv has
+                    // rendered into the replacement texture. Other native
+                    // platforms retain their legacy resize-based first-frame
+                    // behavior until they implement the same native contract.
+                    if (!Platform.isWindows &&
+                        rect.width > 0 &&
+                        rect.height > 0) {
+                      controller?._outputRefreshState.acceptFrame(
+                        generation: generation,
+                      );
+                    }
+                    break;
+                  }
+                case 'VideoOutput.FirstFrame':
+                  {
+                    final int handle = call.arguments['handle'];
+                    final int generation =
+                        call.arguments['generation'] as int? ?? 0;
+                    _controllers[handle]?._outputRefreshState.acceptFrame(
+                          generation: generation,
+                        );
                     break;
                   }
                 default:

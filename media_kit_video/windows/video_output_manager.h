@@ -31,7 +31,16 @@ class VideoOutputManager {
   void Create(
       int64_t handle,
       VideoOutputConfiguration configuration,
-      std::function<void(int64_t, int64_t, int64_t)> texture_update_callback);
+      std::function<void(int64_t, int64_t, int64_t)> texture_update_callback,
+      std::function<void()> first_frame_callback);
+
+  // Refreshes presentation resources on the existing output. The libmpv
+  // render context and playback session remain alive.
+  void Refresh(
+      int64_t handle,
+      VideoOutputConfiguration configuration,
+      std::function<void(int64_t, int64_t, int64_t)> texture_update_callback,
+      std::function<void()> first_frame_callback);
 
   // Sets the required video output size.
   // This forces |VideoOutput| to resize the internal OpenGL surface / D3D
@@ -46,7 +55,9 @@ class VideoOutputManager {
   ~VideoOutputManager();
 
  private:
-  std::mutex mutex_ = std::mutex();
+  // Orders manager operations before they reach the shared render worker.
+  std::unique_ptr<ThreadPool> operation_thread_pool_ =
+      std::make_unique<ThreadPool>(1);
   // All the operations involving ANGLE or EGL or libmpv must be performed on
   // same single thread to prevent any race conditions or invalid ANGLE usage.
   // Not doing so results in access violations & crashes.
