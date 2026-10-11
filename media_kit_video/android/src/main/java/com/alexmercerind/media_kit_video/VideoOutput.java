@@ -42,6 +42,7 @@ public class VideoOutput implements TextureRegistry.SurfaceProducer.Callback {
 
     private long id = 0;
     private long wid = 0;
+    private boolean disposed = false;
 
     private final TextureUpdateCallback textureUpdateCallback;
 
@@ -56,19 +57,25 @@ public class VideoOutput implements TextureRegistry.SurfaceProducer.Callback {
         surfaceProducer.setCallback(this);
     }
 
+    /**
+     * The {@link TextureRegistry.SurfaceProducer} owns its surface: release the
+     * producer, never the surface it hands out (on ImageReader-backed producers
+     * {@code getSurface()} may even create a fresh surface just to release it).
+     * mpv is told the surface is gone (wid = 0) before the producer goes, not
+     * after, and nothing reads the released producer's size.
+     */
     public void dispose() {
         synchronized (lock) {
-            try {
-                surfaceProducer.getSurface().release();
-            } catch (Throwable e) {
-                Log.e(TAG, "dispose", e);
+            if (disposed) {
+                return;
             }
+            disposed = true;
+            detachSurface(true);
             try {
                 surfaceProducer.release();
             } catch (Throwable e) {
                 Log.e(TAG, "dispose", e);
             }
-            onSurfaceCleanup();
         }
     }
 
@@ -78,6 +85,9 @@ public class VideoOutput implements TextureRegistry.SurfaceProducer.Callback {
 
     private void setSurfaceSize(int width, int height, boolean force) {
         synchronized (lock) {
+            if (disposed) {
+                return;
+            }
             try {
                 if (!force && wid != 0 && surfaceProducer.getWidth() == width && surfaceProducer.getHeight() == height) {
                     return;
@@ -93,24 +103,59 @@ public class VideoOutput implements TextureRegistry.SurfaceProducer.Callback {
     @Override
     public void onSurfaceAvailable() {
         synchronized (lock) {
+            if (disposed) {
+                return;
+            }
             Log.i(TAG, "onSurfaceAvailable");
+            // Each call hands mpv a new global reference; the one it held before
+            // (a resize calls this too) is released once mpv has moved on.
+            final long previous = wid;
             id = surfaceProducer.id();
             wid = newGlobalObjectRef(surfaceProducer.getSurface());
             textureUpdateCallback.onTextureUpdate(id, wid, surfaceProducer.getWidth(), surfaceProducer.getHeight());
+            if (previous != 0 && previous != wid) {
+                deleteGlobalObjectRefLater(previous);
+            }
         }
     }
 
     @Override
     public void onSurfaceCleanup() {
         synchronized (lock) {
+            if (disposed) {
+                return;
+            }
             Log.i(TAG, "onSurfaceCleanup");
-            final long widReference = wid;
-            wid = 0;
-            textureUpdateCallback.onTextureUpdate(id, 0, surfaceProducer.getWidth(), surfaceProducer.getHeight());
-            if (widReference != 0) {
-                handler.postDelayed(() -> deleteGlobalObjectRef(widReference), 5000);
+            detachSurface(false);
+        }
+    }
+
+    /**
+     * Tells mpv its surface is gone (wid = 0) and releases the global reference
+     * it held once mpv has moved on. With {@code fromDispose} the producer is about to be
+     * released, so its size is not read.
+     */
+    private void detachSurface(boolean fromDispose) {
+        final long widReference = wid;
+        wid = 0;
+        int width = 0;
+        int height = 0;
+        if (!fromDispose) {
+            try {
+                width = surfaceProducer.getWidth();
+                height = surfaceProducer.getHeight();
+            } catch (Throwable e) {
+                Log.e(TAG, "detachSurface", e);
             }
         }
+        textureUpdateCallback.onTextureUpdate(id, 0, width, height);
+        if (widReference != 0) {
+            deleteGlobalObjectRefLater(widReference);
+        }
+    }
+
+    private static void deleteGlobalObjectRefLater(long ref) {
+        handler.postDelayed(() -> deleteGlobalObjectRef(ref), 5000);
     }
 
     private static long newGlobalObjectRef(Object object) {

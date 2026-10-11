@@ -106,6 +106,28 @@ class NativePlayer extends PlatformPlayer {
       await NativeReferenceHolder.instance.remove(ctx);
       await stop(notify: false, synchronized: false);
 
+      // Android: detach the video output before the release hooks free its
+      // surface. mpv_terminate_destroy only runs 5 s later; until then mpv
+      // otherwise kept its video output, its hardware-decoder interop and a
+      // reference to a surface the app had already released.
+      if (Platform.isAndroid) {
+        for (final property in const <(String, String)>[
+          ('vid', 'no'),
+          ('vo', 'null'),
+          ('wid', '0'),
+        ]) {
+          final name = property.$1.toNativeUtf8();
+          final data = property.$2.toNativeUtf8();
+          try {
+            mpv.mpv_set_property_string(ctx, name.cast(), data.cast());
+          } catch (_) {
+          } finally {
+            calloc.free(name);
+            calloc.free(data);
+          }
+        }
+      }
+
       disposed = true;
 
       await super.dispose();
