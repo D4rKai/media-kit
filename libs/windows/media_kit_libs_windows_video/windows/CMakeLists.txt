@@ -67,16 +67,16 @@ endfunction()
 # Detect architecture and set appropriate libmpv archive
 if(${FLUTTER_TARGET_PLATFORM} STREQUAL "windows-x64")
   set(LIBMPV_ARCH "x86_64")
-  set(LIBMPV "mpv-dev-x86_64-20241021-git-0f78584.7z")
-  set(LIBMPV_MD5 "6ecf18e85b093c3f7edb16f3ee6603f3")
+  set(LIBMPV "mpv-dev-x86_64-20261126-git-0f78584.7z")
+  set(LIBMPV_MD5 "6066ebb794a36c3106bdbcc87c1b8ee6")
 else()
   set(LIBMPV_ARCH "aarch64")
-  set(LIBMPV "mpv-dev-aarch64-20241021-git-0f78584.7z")
-  set(LIBMPV_MD5 "5b507a35db13eee6cb7eb21e8be7c83d")
+  set(LIBMPV "mpv-dev-aarch64-20261126-git-0f78584.7z")
+  set(LIBMPV_MD5 "cb5980dd16f2e103c5df344a30dfdb4c")
 endif()
 
 # Download URL for the libmpv archive from the latest release
-set(LIBMPV_URL "https://github.com/media-kit/libmpv-win32-video-cmake/releases/download/20241021/${LIBMPV}")
+set(LIBMPV_URL "https://github.com/D4rKai/libmpv-win32-video-cmake/releases/download/20241021-atlas-af1/${LIBMPV}")
 
 # Download location of the libmpv archive.
 set(LIBMPV_ARCHIVE "${CMAKE_BINARY_DIR}/${LIBMPV}")
