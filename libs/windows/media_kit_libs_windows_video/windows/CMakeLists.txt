@@ -90,6 +90,15 @@ download_and_verify(
 
 check_directory_exists_and_not_empty(${LIBMPV_SRC} LIBMPV_SRC_VALID)
 
+# A libmpv extracted from another archive (an older libmpv) must not survive
+# an archive change: without this an existing build/ keeps the old DLL.
+set(LIBMPV_SRC_STAMP "${LIBMPV_SRC}/.libmpv-${LIBMPV_MD5}.stamp")
+if(LIBMPV_SRC_VALID AND NOT EXISTS "${LIBMPV_SRC_STAMP}")
+  message(STATUS "${LIBMPV_SRC} was not extracted from ${LIBMPV}, extracting again.")
+  file(REMOVE_RECURSE "${LIBMPV_SRC}")
+  set(LIBMPV_SRC_VALID FALSE)
+endif()
+
 # Find 7zip for extraction (preferred for .7z files)
 find_program(SEVENZ_EXECUTABLE NAMES 7z 7za)
 
@@ -108,6 +117,7 @@ if(NOT LIBMPV_SRC_VALID)
       COMMAND xcopy "\"${LIBMPV_SRC}/include/mpv\"" "\"${LIBMPV_SRC}/mpv\"" /E /H /C /I
       COMMAND rmdir "\"${LIBMPV_SRC}/include\"" /S /Q
       COMMAND ren "\"${LIBMPV_SRC}/mpv\"" "\"include\""
+      COMMAND "${CMAKE_COMMAND}" -E touch "${LIBMPV_SRC_STAMP}"
       WORKING_DIRECTORY "${LIBMPV_SRC}"
     )
   else()
@@ -119,6 +129,7 @@ if(NOT LIBMPV_SRC_VALID)
       COMMAND xcopy "\"${LIBMPV_SRC}/include/mpv\"" "\"${LIBMPV_SRC}/mpv\"" /E /H /C /I
       COMMAND rmdir "\"${LIBMPV_SRC}/include\"" /S /Q
       COMMAND ren "\"${LIBMPV_SRC}/mpv\"" "\"include\""
+      COMMAND "${CMAKE_COMMAND}" -E touch "${LIBMPV_SRC_STAMP}"
       WORKING_DIRECTORY "${LIBMPV_SRC}"
     )
   endif()
